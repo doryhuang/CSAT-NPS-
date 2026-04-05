@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: shared_slides
+    // Document ID: auto-generated
+    // Fields:
+    //   - slides: list (required) - array of SlideData objects
+    //   - createdAt: timestamp (required) - creation time
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isValidSharedSlides(data) {
+      return data.slides is list &&
+             data.slides.size() > 0 &&
+             data.slides.size() <= 50 && // Limit number of slides
+             data.createdAt is timestamp;
+    }
+
+    match /shared_slides/{id} {
+      // Allow anyone to read a shared slide if they have the ID
+      allow get: if true;
+      
+      // Allow anyone to create a shared slide
+      allow create: if isValidSharedSlides(request.resource.data);
+      
+      // No updates or deletes allowed for shared slides
+      allow update, delete: if false;
+    }
+  }
+}

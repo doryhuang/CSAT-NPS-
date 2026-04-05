@@ -1,0 +1,5 @@
+{
+  "name": "CSAT & NPS 分析與簡報生成器",
+  "description": "A comprehensive dashboard for analyzing Customer Satisfaction (CSAT) and Net Promoter Score (NPS) data with interactive visualizations.",
+  "requestFramePermissions": []
+}

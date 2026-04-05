@@ -1,0 +1,34 @@
+{
+  "entities": {
+    "SharedSlides": {
+      "title": "Shared Slides",
+      "description": "A collection of shared analysis slides.",
+      "type": "object",
+      "properties": {
+        "slides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ticketId": { "type": "string" },
+              "csat": { "type": "number" },
+              "nps": { "type": "number" },
+              "summary": { "type": "string" },
+              "keyIssues": { "type": "string" },
+              "finalResult": { "type": "string" },
+              "sentiment": { "type": "string", "enum": ["positive", "neutral", "negative"] }
+            }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["slides", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/shared_slides/{id}": {
+      "schema": "SharedSlides",
+      "description": "Publicly accessible shared slides."
+    }
+  }
+}
