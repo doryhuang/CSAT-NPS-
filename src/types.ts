@@ -6,6 +6,7 @@ export interface Feedback {
   ticketComment: string;
   npsComment: string;
   howToImprove: string;
+  manualDuration?: number;
 }
 
 export interface SlideData {
@@ -16,4 +17,29 @@ export interface SlideData {
   keyIssues: string;
   finalResult: string;
   sentiment: 'positive' | 'neutral' | 'negative';
+}
+
+export interface ZendeskIndividualReport {
+  ticketId: string;
+  durationMinutes: number;
+  summaryPoints: string[];
+  caseDescription: string;
+  todoItems: string;
+  takeaways: {
+    percentage: string;
+    insight: string;
+    suggestion: string;
+  }[];
+  opportunity: string;
+}
+
+export interface ZendeskBatchSummary {
+  ticketSummary: string;
+  takeaways: {
+    title: string;
+    insight: string;
+    suggestion: string;
+  }[];
+  opportunity: string;
+  caseIds: string[];
 }

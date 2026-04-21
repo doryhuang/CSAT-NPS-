@@ -20,9 +20,16 @@
             }
           }
         },
+        "batchData": {
+          "type": "object",
+          "properties": {
+            "summary": { "type": "object" },
+            "individual": { "type": "array" }
+          }
+        },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["slides", "createdAt"]
+      "required": ["createdAt"]
     }
   },
   "firestore": {
