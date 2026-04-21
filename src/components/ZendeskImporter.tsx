@@ -39,12 +39,14 @@ export const ZendeskImporter: React.FC<ZendeskImporterProps> = ({ onImportMany }
       setProgress(prev => ({ ...prev, current: i + 1 }));
       try {
         const response = await fetch(`/api/zendesk/ticket/${id}`);
+        const data = await response.json();
+
         if (!response.ok) {
-          errors.push(`ID ${id}: ${response.status === 404 ? '找不到此工單' : '擷取失敗'}`);
+          const detail = data.details || data.error || (response.status === 404 ? '找不到此工單' : '擷取失敗');
+          errors.push(`ID ${id}: ${detail}`);
           continue;
         }
 
-        const data = await response.json();
         const ticket = data.ticket;
         const allComments = (data.comments || [])
           .map((c: any) => `[${c.created_at}] ${c.author_id === ticket.requester_id ? 'User' : 'Agent'}: ${c.body}`)
