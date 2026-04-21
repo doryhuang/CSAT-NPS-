@@ -18,11 +18,34 @@ export const ZendeskImporter: React.FC<ZendeskImporterProps> = ({ onImportMany }
     e.preventDefault();
     const lines = ticketIdsInput.split('\n').filter(line => line.trim() !== '');
     const ticketData = lines.map(line => {
+      // 支援格式: [Category] [ID] [Duration]
+      // 例如: Inquiry 2276356 23.6
       const parts = line.split(/[\s\t]+/).filter(p => p.trim() !== '');
-      return {
-        id: parts[0],
-        duration: parts[1] ? Math.round(parseFloat(parts[1])) : null
-      };
+      
+      let category: 'Inquiry' | 'Issue' | 'Request' = 'Issue';
+      let id = '';
+      let duration: number | undefined;
+
+      if (parts.length >= 2) {
+        const first = parts[0].toLowerCase();
+        if (first.includes('inquir')) category = 'Inquiry';
+        else if (first.includes('issue')) category = 'Issue';
+        else if (first.includes('request')) category = 'Request';
+        else {
+          // If first part is not a category, it might be the ID
+          id = parts[0];
+          category = 'Issue'; // default
+          duration = parts[1] ? Math.round(parseFloat(parts[1])) : undefined;
+          return { id, duration, category };
+        }
+        
+        id = parts[1];
+        duration = parts[2] ? Math.round(parseFloat(parts[2])) : undefined;
+      } else if (parts.length === 1) {
+        id = parts[0];
+      }
+
+      return { id, duration, category };
     }).filter(item => item.id);
 
     if (ticketData.length === 0) return;
@@ -35,7 +58,7 @@ export const ZendeskImporter: React.FC<ZendeskImporterProps> = ({ onImportMany }
     const errors: string[] = [];
 
     for (let i = 0; i < ticketData.length; i++) {
-      const { id, duration } = ticketData[i];
+      const { id, duration, category } = ticketData[i];
       setProgress(prev => ({ ...prev, current: i + 1 }));
       try {
         const response = await fetch(`/api/zendesk/ticket/${id}`);
@@ -60,7 +83,8 @@ export const ZendeskImporter: React.FC<ZendeskImporterProps> = ({ onImportMany }
           ticketComment: allComments || ticket.description || '',
           npsComment: '',
           howToImprove: '',
-          manualDuration: duration ?? undefined
+          manualDuration: duration,
+          category: category as any
         });
       } catch (err) {
         errors.push(`ID ${id}: 發生連線錯誤`);

@@ -140,7 +140,7 @@ export default function App() {
       setIsAnalyzing(true);
       try {
         const individualReports = await Promise.all(
-          newFeedbacks.map(f => analyzeIndividualZendeskTicket(f.ticketId || '', f.ticketComment, f.manualDuration))
+          newFeedbacks.map(f => analyzeIndividualZendeskTicket(f.ticketId || '', f.ticketComment, f.manualDuration, f.category))
         );
         const batchSummary = await generateZendeskBatchSummary(individualReports);
         setZendeskBatchData({ individual: individualReports, summary: batchSummary });

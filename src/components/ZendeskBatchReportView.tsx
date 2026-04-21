@@ -37,9 +37,18 @@ export const ZendeskBatchReportView: React.FC<ZendeskBatchReportViewProps> = ({
 }) => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [editingCell, setEditingCell] = useState<{ id: string, field: keyof ZendeskIndividualReport } | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<'All' | 'Inquiry' | 'Issue' | 'Request'>('All');
 
   const toggleSelect = onToggleSelect;
   const toggleSelectAll = onToggleSelectAll;
+
+  const filteredReports = individualReports.filter(r => {
+    const isSelected = selectedTicketIds.has(r.ticketId);
+    const matchesCategory = categoryFilter === 'All' || r.category === categoryFilter;
+    return isSelected && matchesCategory;
+  });
+
+  const categories = ['All', 'Inquiry', 'Issue', 'Request'] as const;
 
   const toggleExpand = (id: string) => {
     const next = new Set(expandedIds);
@@ -66,19 +75,39 @@ export const ZendeskBatchReportView: React.FC<ZendeskBatchReportViewProps> = ({
             <span className="text-xs font-bold uppercase tracking-[0.2em] opacity-80">Efficiency & Timeout Analysis Report</span>
           </div>
           <h2 className="text-4xl font-black tracking-tight mb-4">Chat Duration 超時原因分析報告</h2>
-          <div className="flex flex-wrap gap-2">
-            {batchSummary.caseIds.map(id => (
-              <a 
-                key={id} 
-                href={`https://furbo.zendesk.com/agent/tickets/${id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold hover:bg-white/40 transition-colors flex items-center gap-1"
-              >
-                #{id}
-                <ExternalLink size={10} />
-              </a>
-            ))}
+          
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-6">
+            <div className="flex flex-wrap gap-2">
+              {batchSummary.caseIds.map(id => (
+                <a 
+                  key={id} 
+                  href={`https://furbo.zendesk.com/agent/tickets/${id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold hover:bg-white/40 transition-colors flex items-center gap-1"
+                >
+                  #{id}
+                  <ExternalLink size={10} />
+                </a>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 bg-white/10 p-1 rounded-xl">
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setCategoryFilter(cat)}
+                  className={cn(
+                    "px-4 py-1.5 rounded-lg text-xs font-bold transition-all",
+                    categoryFilter === cat 
+                      ? "bg-white text-morandi-yellow-600 shadow-sm" 
+                      : "text-white/70 hover:text-white"
+                  )}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -88,24 +117,34 @@ export const ZendeskBatchReportView: React.FC<ZendeskBatchReportViewProps> = ({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-morandi-yellow-50/50 border-b border-slate-200">
-                  <th className="p-4 text-sm font-bold text-slate-700 w-32 text-center border-r border-slate-200">工單號</th>
-                  <th className="p-4 text-sm font-bold text-slate-700 w-32 text-center border-r border-slate-200">Chat 時長</th>
-                  <th className="p-4 text-sm font-bold text-slate-700 border-r border-slate-200 w-[42%]">案件說明</th>
-                  <th className="p-4 text-sm font-bold text-slate-700 w-[42%]">To do</th>
+                  <th className="p-4 text-sm font-bold text-slate-700 w-28 text-center border-r border-slate-200">Ticket Type</th>
+                  <th className="p-4 text-sm font-bold text-slate-700 w-24 text-center border-r border-slate-200">工單號</th>
+                  <th className="p-4 text-sm font-bold text-slate-700 w-28 text-center border-r border-slate-200">時長</th>
+                  <th className="p-4 text-sm font-bold text-slate-700 border-r border-slate-200 w-[38%]">案件說明</th>
+                  <th className="p-4 text-sm font-bold text-slate-700 w-[38%]">To do</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {individualReports.filter(r => selectedTicketIds.has(r.ticketId)).map((report) => (
+                {filteredReports.map((report) => (
                   <tr key={report.ticketId} className="hover:bg-slate-50 transition-colors align-top">
                     <td className="p-4 text-center border-r border-slate-100">
+                      <span className={cn(
+                        "px-2 py-1 rounded text-[10px] font-black uppercase",
+                        report.category === 'Inquiry' ? "bg-blue-100 text-blue-600" :
+                        report.category === 'Request' ? "bg-purple-100 text-purple-600" :
+                        "bg-orange-100 text-orange-600"
+                      )}>
+                        {report.category || 'Issue'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-center border-r border-slate-100 font-mono text-sm">
                       <a 
                         href={`https://furbo.zendesk.com/agent/tickets/${report.ticketId}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 font-bold hover:underline flex items-center justify-center gap-1"
+                        className="text-blue-600 font-bold hover:underline"
                       >
                         {report.ticketId}
-                        <ExternalLink size={12} />
                       </a>
                     </td>
                     <td className="p-4 text-center border-r border-slate-100">
