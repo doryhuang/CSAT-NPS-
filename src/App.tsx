@@ -23,7 +23,11 @@ import { ZendeskImporter } from './components/ZendeskImporter';
 import { FeedbackTable } from './components/FeedbackTable';
 import { SlideGenerator } from './components/SlideGenerator';
 import { ZendeskBatchReportView } from './components/ZendeskBatchReportView';
-import { analyzeFeedbackForSlide, analyzeIndividualZendeskTicket, generateZendeskBatchSummary } from './services/gemini';
+import { 
+  analyzeFeedbackForSlide, 
+  analyzeIndividualZendeskTicket, 
+  batchAnalyzeZendeskTickets 
+} from './services/gemini';
 import { cn } from './lib/utils';
 import { useEffect } from 'react';
 import { db } from './lib/firebase';
@@ -135,21 +139,23 @@ export default function App() {
       return [...prev, ...filteredNew];
     });
     
-    // Auto-analyze immediately if in duration tab
+    // Auto-analyze with a single batch request if in duration tab to save quota
     if (activeTab === 'duration') {
       setIsAnalyzing(true);
       try {
-        const individualReports = await Promise.all(
-          newFeedbacks.map(f => analyzeIndividualZendeskTicket(f.ticketId || '', f.ticketComment, f.manualDuration, f.category))
-        );
-        const batchSummary = await generateZendeskBatchSummary(individualReports);
-        setZendeskBatchData({ individual: individualReports, summary: batchSummary });
-        setSelectedBatchTicketIds(new Set(individualReports.map(r => r.ticketId)));
+        const batchResults = await batchAnalyzeZendeskTickets(newFeedbacks);
+        setZendeskBatchData(batchResults);
+        setSelectedBatchTicketIds(new Set(batchResults.individual.map(r => r.ticketId)));
       } catch (err: any) {
         console.error("Analysis failed", err);
-        setToast({ message: `AI 分析失敗: ${err.message || '請檢查 API Key 或網路'}`, type: 'error' });
-        setTimeout(() => setToast(null), 5000);
-        // If analysis fails, we stay in importer mode so they can try again or check settings
+        const isQuotaError = err.message?.includes('429') || err.message?.includes('quota');
+        setToast({ 
+          message: isQuotaError 
+            ? 'AI 分析配額不足，請 1 分鐘後再試，或聯絡管理員提升 API 配額。' 
+            : `AI 分析失敗: ${err.message || '請檢查連線'}`, 
+          type: 'error' 
+        });
+        setTimeout(() => setToast(null), 8000);
         setFeedbacks([]); 
       } finally {
         setIsAnalyzing(false);
@@ -189,25 +195,28 @@ export default function App() {
       if (activeTab === 'csat') {
         setSlides([]);
         setZendeskBatchData(null);
-        const results = await Promise.all(
-          selectedFeedbacks.map(f => analyzeFeedbackForSlide(f))
-        );
+        
+        const results: SlideData[] = [];
+        for (let i = 0; i < selectedFeedbacks.length; i++) {
+          const res = await analyzeFeedbackForSlide(selectedFeedbacks[i]);
+          results.push(res);
+          if (i < selectedFeedbacks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 800));
+          }
+        }
         setSlides(results);
         setActiveSlideIndex(0);
       } else {
         setSlides([]);
         setZendeskBatchData(null);
-        // Step 1: Analyze each ticket
-        const individualReports = await Promise.all(
-          selectedFeedbacks.map(f => analyzeIndividualZendeskTicket(f.ticketId || '', f.ticketComment, f.manualDuration, f.category))
-        );
-        // Step 2: Batch summary
-        const summary = await generateZendeskBatchSummary(individualReports);
-        setZendeskBatchData({ individual: individualReports, summary });
+        
+        const batchResults = await batchAnalyzeZendeskTickets(selectedFeedbacks);
+        setZendeskBatchData(batchResults);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Analysis failed:", err);
-      alert("分析失敗，請檢查 API Key 或網路連線。");
+      const isQuotaError = err.message?.includes('429') || err.message?.includes('quota');
+      alert(isQuotaError ? "AI 分析配額不足，請等待約 1 分鐘後再試，或聯絡管理員提升 API 配額。" : "分析失敗，請檢查 API Key 或網路連線。");
     } finally {
       setIsAnalyzing(false);
     }

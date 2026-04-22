@@ -129,34 +129,32 @@ export async function analyzeIndividualZendeskTicket(ticketId: string, content: 
 }
 
 /**
- * 生成批次報告摘要
- * 使用 gemini-3-flash-preview 處理複雜的趨勢分析，以避免配額耗盡錯誤
+ * 批次分析多筆 Zendesk 工單 (節省 API 配額)
+ * 將多個案件合併在同一個 Prompt 中處理，僅消耗 1 次 API 額度
  */
-export async function generateZendeskBatchSummary(reports: ZendeskIndividualReport[]): Promise<ZendeskBatchSummary> {
-  const reportsContext = reports.map(r => `
-    工單 ID: ${r.ticketId}
-    時長: ${r.durationMinutes} 分鐘
-    案件說明: ${r.caseDescription}
-    分析重點: ${r.summaryPoints.join('; ')}
-    結論洞察: ${r.takeaways.map(t => t.insight).join('; ')}
+export async function batchAnalyzeZendeskTickets(tickets: Feedback[]): Promise<{ 
+  individual: ZendeskIndividualReport[]; 
+  summary: ZendeskBatchSummary; 
+}> {
+  const ticketsContent = tickets.map((f, idx) => `
+    ### Ticket #${idx + 1}
+    ID: ${f.ticketId}
+    類別: ${f.category || '未分類'}
+    對話內容: ${f.ticketComment}
+    ${f.manualDuration ? `時長 (外部提供): ${f.manualDuration} 分鐘` : ''}
   `).join('\n---\n');
 
   const prompt = `
-    你是一位極度專業的資深客服營運分析經理。
-    任務：將多筆 Zendesk 工單的分析結果整合為一份高層級的「效率與品質分析報告」。
-    
-    ### 原始數據來源：
-    ${reportsContext}
+    你是一位極度專業的資深客服分析師經理。
+    任務：分析以下一組 Zendesk 工單，並針對每一筆提供深度分析，最後提供一個整體的批次摘要。
 
-    ### 核心分析準則：
-    1. **絕對準確**：總結內容必須與各別工單的事實數據完全一致，嚴禁誇大或縮小。
-    2. **深度趨勢分析**：識別跨工單的系統性問題，例如：特定產品功能的缺陷、某類問題的 SOP 缺失、或客服效能普遍低下的原因。
-    3. **拒絕範本化**：不准提供籠統、通用的建議（如「加強培訓」）。建議必須具體到可以立即執行的操作。
+    ### 待分析工單：
+    ${ticketsContent}
 
-    ### 要求：
-    1. **對話效率總體摘要 (ticketSummary)**：一段話精煉總結整體服務效能與發現。
-    2. **核心戰略結論 (takeaways)**：提供 3 個基於數據的趨勢結論，需包含具體情境。
-    3. **核心改善機會 (opportunity)**：提出一項最高權重的整體 SOP 或流程優化建議。
+    ### 分析準則：
+    1. **單案分析 (individualReports)**：針對每一件工單，分析其案件說明、對話重點 (5個)、結論洞察 (3個) 及 SOP 改善機會。
+    2. **整體摘要 (batchSummary)**：橫跨所有工單，分析整體服務表現趨勢。
+    3. **時長計算**：若工單未提供外部時長，請根據對話時間戳記估計。
 
     請以中文回報。
   `;
@@ -169,26 +167,75 @@ export async function generateZendeskBatchSummary(reports: ZendeskIndividualRepo
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          ticketSummary: { type: Type.STRING, description: "對話效率總體摘要" },
-          takeaways: {
+          individualReports: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
               properties: {
-                title: { type: Type.STRING, description: "結論標題，包含百分比或比重" },
-                insight: { type: Type.STRING, description: "深層趨勢洞察與事實根據" },
-                suggestion: { type: Type.STRING, description: "針對此趨勢的戰略性優化建議" }
+                ticketId: { type: Type.STRING },
+                durationMinutes: { type: Type.NUMBER },
+                caseDescription: { type: Type.STRING },
+                summaryPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
+                takeaways: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      percentage: { type: Type.STRING },
+                      insight: { type: Type.STRING },
+                      suggestion: { type: Type.STRING }
+                    },
+                    required: ["percentage", "insight", "suggestion"]
+                  }
+                },
+                opportunity: { type: Type.STRING }
               },
-              required: ["title", "insight", "suggestion"]
+              required: ["ticketId", "durationMinutes", "caseDescription", "summaryPoints", "takeaways", "opportunity"]
             }
           },
-          opportunity: { type: Type.STRING, description: "核心改善機會" }
+          batchSummary: {
+            type: Type.OBJECT,
+            properties: {
+              ticketSummary: { type: Type.STRING },
+              takeaways: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    title: { type: Type.STRING },
+                    insight: { type: Type.STRING },
+                    suggestion: { type: Type.STRING }
+                  },
+                  required: ["title", "insight", "suggestion"]
+                }
+              },
+              opportunity: { type: Type.STRING }
+            },
+            required: ["ticketSummary", "takeaways", "opportunity"]
+          }
         },
-        required: ["ticketSummary", "takeaways", "opportunity"]
+        required: ["individualReports", "batchSummary"]
       }
     }
   });
 
   const result = JSON.parse(response.text || "{}");
-  return { ...result, caseIds: reports.map(r => r.ticketId) };
+  
+  // Ensure ticketId mapping matches original metadata
+  const individualWithMetaData = result.individualReports.map((report: any) => {
+    const original = tickets.find(t => t.ticketId === report.ticketId);
+    return {
+      ...report,
+      category: original?.category,
+      todoItems: "分析後待辦項" // Placeholder for schema compatibility if needed
+    };
+  });
+
+  return {
+    individual: individualWithMetaData,
+    summary: {
+      ...result.batchSummary,
+      caseIds: individualWithMetaData.map((r: any) => r.ticketId)
+    }
+  };
 }
