@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Feedback, SlideData, ZendeskIndividualReport, ZendeskBatchSummary } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const ai = new GoogleGenAI({ apiKey: ((import.meta as any).env?.VITE_GEMINI_API_KEY as string) || (process.env.GEMINI_API_KEY as string) || "" });
 
 export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<SlideData> {
   const prompt = `
