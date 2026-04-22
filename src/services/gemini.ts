@@ -1,24 +1,28 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Feedback, SlideData, ZendeskIndividualReport, ZendeskBatchSummary } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const ai = new GoogleGenAI({ 
+  apiKey: (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '') || 
+          (import.meta as any).env.VITE_GEMINI_API_KEY || 
+          "" 
+});
 
 export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<SlideData> {
   const prompt = `
-    Analyze the following customer feedback and generate a structured summary for a presentation slide.
+    Analyze the following customer feedback.
     
     Ticket ID: ${feedback.ticketId}
     CSAT Score: ${feedback.csat}
     NPS Score: ${feedback.nps}
-    Ticket Comment: ${feedback.ticketComment}
-    NPS Comment: ${feedback.npsComment}
-    Improvement Suggestion: ${feedback.howToImprove}
+    Ticket Comment (Original): ${feedback.ticketComment}
+    NPS Comment (Original): ${feedback.npsComment}
+    Improvement Suggestion (Original): ${feedback.howToImprove}
 
-    Please provide:
-    1. A concise summary of the feedback (工單滿意度評論).
-    2. Key issue points (關鍵問題點).
-    3. Final result/conclusion (最終結果).
-    4. Sentiment (positive, neutral, or negative).
+    Important Instructions:
+    1. For the "summary" field, DO NOT analyze or summarize. You MUST combine the original Ticket Comment, NPS Comment, and Improvement Suggestion exactly as they are provided, separated by newlines.
+    2. Analyze the "keyIssues" (關鍵問題點).
+    3. Analyze the "finalResult" (最終結果).
+    4. Determine the overall sentiment.
 
     Return the result in JSON format.
   `;

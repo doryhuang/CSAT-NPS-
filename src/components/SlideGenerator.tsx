@@ -126,7 +126,7 @@ export const SlideGenerator: React.FC<SlideGeneratorProps> = ({ data, onUpdate }
                   rows={3}
                 />
             ) : (
-              <p className="text-slate-600 text-lg leading-relaxed pl-8">
+              <p className="text-slate-600 text-lg leading-relaxed pl-8 whitespace-pre-wrap">
                 {data.summary}
               </p>
             )}
