@@ -209,7 +209,63 @@ function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <AnimatePresence mode="wait">
-          {(feedbacks.length === 0 || (activeTab === 'duration' && !zendeskBatchData && !isAnalyzing)) ? (
+          {isAnalyzing ? (
+            <motion.div 
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center justify-center py-24 space-y-8"
+            >
+              <div className="relative w-32 h-32">
+                <motion.div 
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                  className="absolute inset-0 rounded-full border-4 border-slate-100 border-t-morandi-yellow-500"
+                />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Sparkles className="w-12 h-12 text-morandi-yellow-600 animate-pulse" />
+                </div>
+              </div>
+              <div className="text-center space-y-2">
+                <h3 className="text-2xl font-black text-slate-800">AI 正在深度分析中</h3>
+                <p className="text-slate-500 font-medium italic">我們正在根據工單內容與對話時長提取關鍵洞察...</p>
+              </div>
+            </motion.div>
+          ) : (feedbacks.length > 0 && activeTab === 'duration' && !zendeskBatchData) ? (
+            <motion.div 
+              key="retry-state"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="max-w-xl mx-auto mt-12 p-12 bg-white rounded-[3rem] border-2 border-red-100 shadow-2xl flex flex-col items-center text-center space-y-8"
+            >
+              <div className="w-20 h-20 bg-red-50 rounded-3xl flex items-center justify-center text-red-500">
+                <AlertCircle size={40} />
+              </div>
+              <div className="space-y-4">
+                <h2 className="text-3xl font-black text-slate-900 tracking-tight">AI 分析暫時中斷</h2>
+                <p className="text-slate-500 leading-relaxed">
+                  可能是因為 Google API 的免費額度限制導致請求頻率過快。您的資料已安全備妥，請稍候約一分鐘後點擊下方按鈕繼續分析。
+                </p>
+              </div>
+              <div className="flex flex-col w-full gap-4">
+                <button 
+                  onClick={() => handleAddManyZendeskTickets([])}
+                  className="w-full flex items-center justify-center gap-3 py-5 bg-morandi-yellow-600 text-white rounded-2xl font-black text-xl hover:bg-morandi-yellow-700 shadow-xl shadow-morandi-yellow-100 transition-all active:scale-95"
+                >
+                  <RefreshCw className="w-6 h-6" />
+                  重新啟動 AI 分析
+                </button>
+                <button 
+                  onClick={() => setFeedbacks([])}
+                  className="text-sm font-bold text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  放棄並重新輸入工單
+                </button>
+              </div>
+            </motion.div>
+          ) : (feedbacks.length === 0) ? (
             <motion.div 
               key="import"
               initial={{ opacity: 0, y: 20 }}
@@ -233,49 +289,8 @@ function App() {
               ) : (
                 <ZendeskImporter onImportMany={handleAddManyZendeskTickets} />
               )}
-
-              {feedbacks.length > 0 && activeTab === 'duration' && !isAnalyzing && (
-                <div className="flex flex-col items-center mt-12 p-8 bg-white rounded-3xl border border-red-100 shadow-xl space-y-6">
-                   <div className="flex items-center gap-3 text-red-600">
-                    <AlertCircle className="w-8 h-8" />
-                    <span className="text-xl font-bold">分析未完成</span>
-                  </div>
-                  <p className="text-slate-500 text-center max-w-md">可能是因為頻率過快被 AI 暫停。請稍候 30 秒後重新開啟分析程序。</p>
-                  <button 
-                    onClick={() => handleAddManyZendeskTickets([])}
-                    className="flex items-center gap-3 px-12 py-4 bg-morandi-yellow-600 text-white rounded-2xl font-bold hover:bg-morandi-yellow-700 shadow-xl transition-all text-xl"
-                  >
-                    <RefreshCw className="w-6 h-6" />
-                    重新啟動 AI 分析
-                  </button>
-                  <button onClick={() => setFeedbacks([])} className="text-slate-400 hover:text-slate-600 underline">重新輸入工單</button>
-                </div>
-              )}
             </motion.div>
-          ) : isAnalyzing ? (
-            <motion.div 
-              key="loading"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex flex-col items-center justify-center py-24 space-y-8"
-            >
-              <div className="relative w-32 h-32">
-                <motion.div 
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-                  className="absolute inset-0 rounded-full border-4 border-slate-100 border-t-morandi-yellow-500"
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Sparkles className="w-12 h-12 text-morandi-yellow-600 animate-pulse" />
-                </div>
-              </div>
-              <div className="text-center space-y-2">
-                <h3 className="text-2xl font-black text-slate-800">AI 正在深度分析中</h3>
-                <p className="text-slate-500 font-medium italic">我們正在根據工單內容與對話時長提取關鍵洞察...</p>
-              </div>
-            </motion.div>
-          ) : (activeTab === 'csat' && feedbacks.length > 0 && slides.length === 0) ? (
+          ) : (activeTab === 'csat' && slides.length === 0) ? (
             <motion.div 
               key="table"
               initial={{ opacity: 0 }}

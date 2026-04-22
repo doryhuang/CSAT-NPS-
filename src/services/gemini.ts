@@ -54,9 +54,10 @@ export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<Slide
       finalResult: result.finalResult,
       sentiment: result.sentiment
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini Analysis failed:", error);
-    throw new Error("Analysis failed");
+    // 傳遞原始錯誤訊息，以便 UI 層能偵測到 429 Quota 錯誤
+    throw new Error(error?.message || "Analysis failed");
   }
 }
 
@@ -116,9 +117,10 @@ export async function analyzeIndividualZendeskTicket(ticketId: string, content: 
 
     const result = JSON.parse(response.text || "{}");
     return { ticketId, category: category as any, ...result };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini Ticket analysis failed:", error);
-    throw new Error("Ticket analysis failed");
+    // 傳遞原始錯誤訊息，以便 UI 層能偵測到 429 Quota 錯誤
+    throw new Error(error?.message || "Ticket analysis failed");
   }
 }
 
@@ -170,8 +172,9 @@ export async function generateZendeskBatchSummary(reports: ZendeskIndividualRepo
 
     const result = JSON.parse(response.text || "{}");
     return { ...result, caseIds: reports.map(r => r.ticketId) };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini Batch analysis failed:", error);
-    throw new Error("Batch analysis failed");
+    // 傳遞原始錯誤訊息，以便 UI 層能偵測到 429 Quota 錯誤
+    throw new Error(error?.message || "Batch analysis failed");
   }
 }
