@@ -1,10 +1,7 @@
 import express from "express";
-import { GoogleGenAI, Type } from "@google/genai";
 
 const app = express();
-app.use(express.json({ limit: '20mb' }));
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+app.use(express.json({ limit: '10mb' }));
 
 // API Route for Zendesk Ticket Fetching
 app.get("/api/zendesk/ticket/:id", async (req, res) => {
@@ -81,156 +78,8 @@ app.get("/api/zendesk/debug-config", (req, res) => {
     subdomain,
     email,
     hasToken,
-    hasGeminiKey: !!process.env.GEMINI_API_KEY,
     message: "這是目前的伺服器配置。請確認 Subdomain 是否只有簡稱。"
   });
-});
-
-// AI 分析路由
-app.post("/api/analyze/feedback", async (req, res) => {
-  const { feedback } = req.body;
-  if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
-
-  const prompt = `
-    請分析以下客戶回饋，並為簡報頁面生成結構化的摘要。
-    【重要指令：必須使用繁體中文（台灣格式）回答所有欄位內容】
-    工單 ID: ${feedback.ticketId}
-    CSAT 分數: ${feedback.csat}
-    NPS 分數: ${feedback.nps}
-    工單評論: ${feedback.ticketComment}
-    NPS 評論: ${feedback.npsComment}
-    改善建議: ${feedback.howToImprove}
-    請提供 summary, keyIssues, finalResult, sentiment。
-    請以 JSON 格式回傳。
-  `;
-
-  try {
-    const result = await ai.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summary: { type: Type.STRING },
-            keyIssues: { type: Type.STRING },
-            finalResult: { type: Type.STRING },
-            sentiment: { type: Type.STRING }
-          },
-          required: ["summary", "keyIssues", "finalResult", "sentiment"]
-        }
-      }
-    });
-    res.json(JSON.parse(result.response.text()));
-  } catch (error) {
-    console.error("Analysis Error:", error);
-    res.status(500).json({ error: "Analysis failed", details: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-app.post("/api/analyze/ticket", async (req, res) => {
-  const { ticketId, content, manualDuration, category } = req.body;
-  if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
-
-  const prompt = `
-    你是一位極度嚴謹的資深客服分析師與品質控管專家（QA Specialist）。
-    任務：深度分析 Zendesk 工單對話紀錄，產出精準、客觀且無誤的報告。
-    【重要指令：所有輸出的內容（summary, description, todo, insights, suggestion）必須完全使用繁體中文（台灣格式）】
-    工單 ID: ${ticketId}
-    類別: ${category || 'N/A'}
-    對話內容: ${content}
-    時長資訊: ${manualDuration !== undefined ? `外部計算為 ${manualDuration} 分鐘` : '分析對話時長'}
-    
-    請提供以下欄位（JSON 格式）：
-    - durationMinutes: 數字
-    - caseDescription: 繁體中文案件說明
-    - todoItems: 繁體中文待辦事項
-    - summaryPoints: 繁體中文字串陣列
-    - takeaways: 包含 percentage, insight, suggestion 的陣列
-    - opportunity: 繁體中文核心改善建議
-  `;
-
-  try {
-    const result = await ai.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            durationMinutes: { type: Type.NUMBER },
-            caseDescription: { type: Type.STRING },
-            todoItems: { type: Type.STRING },
-            summaryPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
-            takeaways: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  percentage: { type: Type.STRING },
-                  insight: { type: Type.STRING },
-                  suggestion: { type: Type.STRING }
-                }
-              }
-            },
-            opportunity: { type: Type.STRING }
-          },
-          required: ["durationMinutes", "caseDescription", "todoItems", "summaryPoints", "takeaways", "opportunity"]
-        }
-      }
-    });
-    res.json(JSON.parse(result.response.text()));
-  } catch (error) {
-    console.error("Ticket Analysis Error:", error);
-    res.status(500).json({ error: "Ticket analysis failed", details: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-app.post("/api/analyze/batch", async (req, res) => {
-  const { reports } = req.body;
-  if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
-
-  const reportsContext = reports.map((r: any) => `ID: ${r.ticketId}, 類別: ${r.category}, 時長: ${r.durationMinutes}, 案情: ${r.caseDescription}`).join('\n---\n');
-  const prompt = `
-    請將多筆 Zendesk 工單的分析結果整合為一份總結報告。
-    【重要指令：必須使用繁體中文（台灣格式）生成所有回答內容】
-    原始資料內容：
-    ${reportsContext}
-    請提供 ticketSummary, takeaways, opportunity。
-    Return JSON.
-  `;
-
-  try {
-    const result = await ai.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            ticketSummary: { type: Type.STRING },
-            takeaways: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                  insight: { type: Type.STRING },
-                  suggestion: { type: Type.STRING }
-                }
-              }
-            },
-            opportunity: { type: Type.STRING }
-          },
-          required: ["ticketSummary", "takeaways", "opportunity"]
-        }
-      }
-    });
-    res.json(JSON.parse(result.response.text()));
-  } catch (error) {
-    console.error("Batch Analysis Error:", error);
-    res.status(500).json({ error: "Batch analysis failed", details: error instanceof Error ? error.message : String(error) });
-  }
 });
 
 // For local development with Vite

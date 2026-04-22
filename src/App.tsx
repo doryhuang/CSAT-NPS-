@@ -139,16 +139,23 @@ export default function App() {
     if (activeTab === 'duration') {
       setIsAnalyzing(true);
       try {
-        const individualReports = await Promise.all(
-          newFeedbacks.map(f => analyzeIndividualZendeskTicket(f.ticketId || '', f.ticketComment, f.manualDuration, f.category))
-        );
+        const individualReports: ZendeskIndividualReport[] = [];
+        // Sequential analysis to avoid rate limits and provide better stability
+        for (const f of newFeedbacks) {
+          const report = await analyzeIndividualZendeskTicket(f.ticketId || '', f.ticketComment, f.manualDuration, f.category);
+          individualReports.push(report);
+          // Small delay between calls
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
         const batchSummary = await generateZendeskBatchSummary(individualReports);
         setZendeskBatchData({ individual: individualReports, summary: batchSummary });
         setSelectedBatchTicketIds(new Set(individualReports.map(r => r.ticketId)));
       } catch (err) {
         console.error("Analysis failed", err);
         setFeedbacks([]); // If analysis fails, go back to import page
-        alert("分析失敗，請檢查 API Key 或網路連線。");
+        const errorMsg = err instanceof Error ? err.message : "未知錯誤";
+        alert(`分析失敗：${errorMsg}\n\n請檢查 Vercel 環境變數是否包含 VITE_GEMINI_API_KEY。`);
       } finally {
         setIsAnalyzing(false);
       }
