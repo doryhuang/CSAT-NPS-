@@ -1,8 +1,13 @@
 import React, { useRef } from 'react';
 import { toPng } from 'html-to-image';
 import { Download, Smile, Meh, Frown, Presentation } from 'lucide-react';
+import { SlideData } from '../types';
 
-export const SummarySlide: React.FC = () => {
+interface SummarySlideProps {
+  slides?: SlideData[];
+}
+
+export const SummarySlide: React.FC<SummarySlideProps> = ({ slides }) => {
   const slideRef = useRef<HTMLDivElement>(null);
 
   const handleDownload = async () => {

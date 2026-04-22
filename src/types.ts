@@ -45,3 +45,8 @@ export interface ZendeskBatchSummary {
   opportunity: string;
   caseIds: string[];
 }
+
+export interface ZendeskBatchData {
+  individual: ZendeskIndividualReport[];
+  summary: ZendeskBatchSummary;
+}

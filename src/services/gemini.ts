@@ -3,16 +3,9 @@ import { Feedback, SlideData, ZendeskIndividualReport, ZendeskBatchSummary } fro
 
 // 初始化 Google GenAI
 const getApiKey = () => {
-  // 優先嘗試從 process.env 獲取 (AI Studio 注入或後端環境)
-  if (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) {
-    return process.env.GEMINI_API_KEY;
-  }
-  // 其次嘗試 Vite 專用的環境變數 (Vercel 前端設定 VITE_GEMINI_API_KEY)
+  // 對於 Vite 前端，必須使用 VITE_ 開頭的變數才能在瀏覽器被讀取
   const metaEnv = (import.meta as any).env;
-  if (metaEnv?.VITE_GEMINI_API_KEY) {
-    return metaEnv.VITE_GEMINI_API_KEY;
-  }
-  return "";
+  return metaEnv?.VITE_GEMINI_API_KEY || "";
 };
 
 const ai = new GoogleGenAI({ apiKey: getApiKey() });
