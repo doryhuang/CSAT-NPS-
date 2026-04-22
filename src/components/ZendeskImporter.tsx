@@ -17,36 +17,51 @@ export const ZendeskImporter: React.FC<ZendeskImporterProps> = ({ onImportMany }
   const handleFetch = async (e: React.FormEvent) => {
     e.preventDefault();
     const lines = ticketIdsInput.split('\n').filter(line => line.trim() !== '');
-    const ticketData = lines.map(line => {
-      // 支援格式: [Category] [ID] [Duration]
-      // 例如: Inquiry 2276356 23.6
-      const parts = line.split(/[\s\t]+/).filter(p => p.trim() !== '');
-      
-      let category: 'Inquiry' | 'Issue' | 'Request' = 'Issue';
-      let id = '';
-      let duration: number | undefined;
+    
+    let currentCategory: string | undefined = undefined;
+    const ticketData: { id: string; duration: number | null; category?: string }[] = [];
 
-      if (parts.length >= 2) {
-        const first = parts[0].toLowerCase();
-        if (first.includes('inquir')) category = 'Inquiry';
-        else if (first.includes('issue')) category = 'Issue';
-        else if (first.includes('request')) category = 'Request';
-        else {
-          // If first part is not a category, it might be the ID
-          id = parts[0];
-          category = 'Issue'; // default
-          duration = parts[1] ? Math.round(parseFloat(parts[1])) : undefined;
-          return { id, duration, category };
-        }
-        
-        id = parts[1];
-        duration = parts[2] ? Math.round(parseFloat(parts[2])) : undefined;
-      } else if (parts.length === 1) {
-        id = parts[0];
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      // Extract parts
+      const parts = trimmed.split(/[\s\t]+/).filter(p => p.trim() !== '');
+      
+      // Look for category keywords
+      const categoryMatch = trimmed.match(/\b(Inquiry|Issue|Issues|Request)\b/i);
+      if (categoryMatch) {
+        // Normalize "Issues" to "Issue" or keep as is? User said "Issue / request" but image says "Issues".
+        // I'll keep the direct string but maybe normalize common ones.
+        let cat = categoryMatch[1];
+        // Minimal normalization
+        if (cat.toLowerCase() === 'issues') cat = 'Issue';
+        // Capitalize first letter
+        cat = cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
+        currentCategory = cat;
       }
 
-      return { id, duration, category };
-    }).filter(item => item.id);
+      // Look for potential Ticket ID (usually 7 digits)
+      const idMatch = trimmed.match(/\b(\d{7})\b/);
+      if (idMatch) {
+        const id = idMatch[1];
+        
+        // Find duration in the same line
+        // Look for something like "14.3" or "17"
+        // Try to find the number that isn't the ID
+        const numbers = parts
+          .map(p => p.replace(/[^\d.]/g, ''))
+          .filter(p => p !== '' && p !== id && !isNaN(parseFloat(p)));
+        
+        const duration = numbers.length > 0 ? Math.round(parseFloat(numbers[0])) : null;
+        
+        ticketData.push({
+          id,
+          duration,
+          category: currentCategory
+        });
+      }
+    });
 
     if (ticketData.length === 0) return;
 
@@ -62,14 +77,12 @@ export const ZendeskImporter: React.FC<ZendeskImporterProps> = ({ onImportMany }
       setProgress(prev => ({ ...prev, current: i + 1 }));
       try {
         const response = await fetch(`/api/zendesk/ticket/${id}`);
-        const data = await response.json();
-
         if (!response.ok) {
-          const detail = data.details || data.error || (response.status === 404 ? '找不到此工單' : '擷取失敗');
-          errors.push(`ID ${id}: ${detail}`);
+          errors.push(`ID ${id}: ${response.status === 404 ? '找不到此工單' : '擷取失敗'}`);
           continue;
         }
 
+        const data = await response.json();
         const ticket = data.ticket;
         const allComments = (data.comments || [])
           .map((c: any) => `[${c.created_at}] ${c.author_id === ticket.requester_id ? 'User' : 'Agent'}: ${c.body}`)
@@ -83,8 +96,8 @@ export const ZendeskImporter: React.FC<ZendeskImporterProps> = ({ onImportMany }
           ticketComment: allComments || ticket.description || '',
           npsComment: '',
           howToImprove: '',
-          manualDuration: duration,
-          category: category as any
+          manualDuration: duration ?? undefined,
+          category: category
         });
       } catch (err) {
         errors.push(`ID ${id}: 發生連線錯誤`);

@@ -7,7 +7,7 @@ export interface Feedback {
   npsComment: string;
   howToImprove: string;
   manualDuration?: number;
-  category?: 'Inquiry' | 'Issue' | 'Request';
+  category?: string;
 }
 
 export interface SlideData {
@@ -22,7 +22,6 @@ export interface SlideData {
 
 export interface ZendeskIndividualReport {
   ticketId: string;
-  category?: 'Inquiry' | 'Issue' | 'Request';
   durationMinutes: number;
   summaryPoints: string[];
   caseDescription: string;
@@ -33,6 +32,7 @@ export interface ZendeskIndividualReport {
     suggestion: string;
   }[];
   opportunity: string;
+  category?: string;
 }
 
 export interface ZendeskBatchSummary {
@@ -44,9 +44,4 @@ export interface ZendeskBatchSummary {
   }[];
   opportunity: string;
   caseIds: string[];
-}
-
-export interface ZendeskBatchData {
-  individual: ZendeskIndividualReport[];
-  summary: ZendeskBatchSummary;
 }
