@@ -1,7 +1,14 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Feedback, SlideData, ZendeskIndividualReport, ZendeskBatchSummary } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: ((import.meta as any).env?.VITE_GEMINI_API_KEY as string) || (process.env.GEMINI_API_KEY as string) || "" });
+const getApiKey = (keyName?: string) => {
+  const env = (import.meta as any).env || {};
+  const specificKey = keyName ? env[keyName] : null;
+  return (specificKey as string) || (env.VITE_GEMINI_API_KEY as string) || (process.env.GEMINI_API_KEY as string) || "";
+};
+
+const aiCsat = new GoogleGenAI({ apiKey: getApiKey('VITE_GEMINI_API_KEY_CSAT') });
+const aiDuration = new GoogleGenAI({ apiKey: getApiKey('VITE_GEMINI_API_KEY_DURATION') });
 
 export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<SlideData> {
   const prompt = `
@@ -15,16 +22,16 @@ export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<Slide
     Improvement Suggestion: ${feedback.howToImprove}
 
     Please provide:
-    1. A concise summary of the feedback (工單滿意度評論).
+    1. A concise summary of the feedback (工單滿意度評論匯整).
     2. Key issue points (關鍵問題點).
-    3. Final result/conclusion (最終結果).
+    3. Final result/conclusion (最終結論).
     4. Sentiment (positive, neutral, or negative).
 
     Return the result in JSON format.
   `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+  const response = await aiCsat.models.generateContent({
+    model: "gemini-3.1-flash-lite-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -93,8 +100,8 @@ export async function analyzeIndividualZendeskTicket(ticketId: string, content: 
     請以中文回報。
   `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+  const response = await aiDuration.models.generateContent({
+    model: "gemini-3.1-flash-lite-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -152,15 +159,15 @@ export async function batchAnalyzeZendeskTickets(tickets: Feedback[]): Promise<{
     ${ticketsContent}
 
     ### 分析準則：
-    1. **單案分析 (individualReports)**：針對每一件工單，分析其案件說明、對話重點 (5個)、結論洞察 (3個) 及 SOP 改善機會。
+    1. **單案分析 (individualReports)**：針對每一件工單，分析其案件說明、對話重點 (5個)、待辦改善建議 (todoItems)、結論洞察 (3個) 及 SOP 改善機會。
     2. **整體摘要 (batchSummary)**：橫跨所有工單，分析整體服務表現趨勢。
     3. **時長計算**：若工單未提供外部時長，請根據對話時間戳記估計。
 
     請以中文回報。
   `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+  const response = await aiDuration.models.generateContent({
+    model: "gemini-3.1-flash-lite-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -176,6 +183,7 @@ export async function batchAnalyzeZendeskTickets(tickets: Feedback[]): Promise<{
                 durationMinutes: { type: Type.NUMBER },
                 caseDescription: { type: Type.STRING },
                 summaryPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
+                todoItems: { type: Type.STRING },
                 takeaways: {
                   type: Type.ARRAY,
                   items: {
@@ -190,7 +198,7 @@ export async function batchAnalyzeZendeskTickets(tickets: Feedback[]): Promise<{
                 },
                 opportunity: { type: Type.STRING }
               },
-              required: ["ticketId", "durationMinutes", "caseDescription", "summaryPoints", "takeaways", "opportunity"]
+              required: ["ticketId", "durationMinutes", "caseDescription", "summaryPoints", "todoItems", "takeaways", "opportunity"]
             }
           },
           batchSummary: {
@@ -221,13 +229,11 @@ export async function batchAnalyzeZendeskTickets(tickets: Feedback[]): Promise<{
 
   const result = JSON.parse(response.text || "{}");
   
-  // Ensure ticketId mapping matches original metadata
   const individualWithMetaData = result.individualReports.map((report: any) => {
     const original = tickets.find(t => t.ticketId === report.ticketId);
     return {
       ...report,
-      category: original?.category,
-      todoItems: "分析後待辦項" // Placeholder for schema compatibility if needed
+      category: original?.category
     };
   });
 
