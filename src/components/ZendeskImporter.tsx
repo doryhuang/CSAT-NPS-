@@ -17,51 +17,39 @@ export const ZendeskImporter: React.FC<ZendeskImporterProps> = ({ onImportMany }
   const handleFetch = async (e: React.FormEvent) => {
     e.preventDefault();
     const lines = ticketIdsInput.split('\n').filter(line => line.trim() !== '');
-    
-    let currentCategory: string | undefined = undefined;
-    const ticketData: { id: string; duration: number | null; category?: string }[] = [];
+    const ticketData = lines.map(line => {
+      const parts = line.split(/[\s\t]+/).filter(p => p.trim() !== '');
+      if (parts.length === 0) return { id: null };
 
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
+      let id = '';
+      let duration: number | null = null;
+      let category = '';
 
-      // Extract parts
-      const parts = trimmed.split(/[\s\t]+/).filter(p => p.trim() !== '');
-      
-      // Look for category keywords
-      const categoryMatch = trimmed.match(/\b(Inquiry|Issue|Issues|Request)\b/i);
-      if (categoryMatch) {
-        // Normalize "Issues" to "Issue" or keep as is? User said "Issue / request" but image says "Issues".
-        // I'll keep the direct string but maybe normalize common ones.
-        let cat = categoryMatch[1];
-        // Minimal normalization
-        if (cat.toLowerCase() === 'issues') cat = 'Issue';
-        // Capitalize first letter
-        cat = cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
-        currentCategory = cat;
-      }
+      // Intelligent mapping based on content
+      parts.forEach(part => {
+        const lower = part.toLowerCase();
+        
+        // Find category if not already found (checking if part starts with or is exactly the category)
+        if (!category) {
+          if (lower.startsWith('inquiry')) category = 'Inquiry';
+          else if (lower.startsWith('issue')) category = 'Issue';
+          else if (lower.startsWith('request')) category = 'Request';
+        }
 
-      // Look for potential Ticket ID (usually 7 digits)
-      const idMatch = trimmed.match(/\b(\d{7})\b/);
-      if (idMatch) {
-        const id = idMatch[1];
-        
-        // Find duration in the same line
-        // Look for something like "14.3" or "17"
-        // Try to find the number that isn't the ID
-        const numbers = parts
-          .map(p => p.replace(/[^\d.]/g, ''))
-          .filter(p => p !== '' && p !== id && !isNaN(parseFloat(p)));
-        
-        const duration = numbers.length > 0 ? Math.round(parseFloat(numbers[0])) : null;
-        
-        ticketData.push({
-          id,
-          duration,
-          category: currentCategory
-        });
-      }
-    });
+        if (/^\d{7,}$/.test(part)) {
+          // Likely a Zendesk Ticket ID (long number)
+          id = part;
+        } else if (!isNaN(parseFloat(part)) && duration === null) {
+          // Likely duration
+          duration = Math.round(parseFloat(part));
+        } else if (!id) {
+          // Fallback for ID if not already found
+          id = part;
+        }
+      });
+
+      return { id, duration, category };
+    }).filter(item => item.id);
 
     if (ticketData.length === 0) return;
 
@@ -97,7 +85,7 @@ export const ZendeskImporter: React.FC<ZendeskImporterProps> = ({ onImportMany }
           npsComment: '',
           howToImprove: '',
           manualDuration: duration ?? undefined,
-          category: category
+          category: category || undefined
         });
       } catch (err) {
         errors.push(`ID ${id}: 發生連線錯誤`);

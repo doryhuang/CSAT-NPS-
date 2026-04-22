@@ -23,11 +23,7 @@ import { ZendeskImporter } from './components/ZendeskImporter';
 import { FeedbackTable } from './components/FeedbackTable';
 import { SlideGenerator } from './components/SlideGenerator';
 import { ZendeskBatchReportView } from './components/ZendeskBatchReportView';
-import { 
-  analyzeFeedbackForSlide, 
-  analyzeIndividualZendeskTicket, 
-  batchAnalyzeZendeskTickets 
-} from './services/gemini';
+import { analyzeFeedbackForSlide, analyzeIndividualZendeskTicket, generateZendeskBatchSummary } from './services/gemini';
 import { cn } from './lib/utils';
 import { useEffect } from 'react';
 import { db } from './lib/firebase';
@@ -139,24 +135,18 @@ export default function App() {
       return [...prev, ...filteredNew];
     });
     
-    // Auto-analyze with a single batch request if in duration tab to save quota
+    // Auto-analyze immediately if in duration tab
     if (activeTab === 'duration') {
       setIsAnalyzing(true);
       try {
-        const batchResults = await batchAnalyzeZendeskTickets(newFeedbacks);
-        setZendeskBatchData(batchResults);
-        setSelectedBatchTicketIds(new Set(batchResults.individual.map(r => r.ticketId)));
-      } catch (err: any) {
+        const individualReports = await Promise.all(
+          newFeedbacks.map(f => analyzeIndividualZendeskTicket(f.ticketId || '', f.ticketComment, f.manualDuration, f.category))
+        );
+        const batchSummary = await generateZendeskBatchSummary(individualReports);
+        setZendeskBatchData({ individual: individualReports, summary: batchSummary });
+        setSelectedBatchTicketIds(new Set(individualReports.map(r => r.ticketId)));
+      } catch (err) {
         console.error("Analysis failed", err);
-        const isQuotaError = err.message?.includes('429') || err.message?.includes('quota');
-        setToast({ 
-          message: isQuotaError 
-            ? 'AI 分析配額不足，請 1 分鐘後再試，或聯絡管理員提升 API 配額。' 
-            : `AI 分析失敗: ${err.message || '請檢查連線'}`, 
-          type: 'error' 
-        });
-        setTimeout(() => setToast(null), 8000);
-        setFeedbacks([]); 
       } finally {
         setIsAnalyzing(false);
       }
@@ -195,28 +185,25 @@ export default function App() {
       if (activeTab === 'csat') {
         setSlides([]);
         setZendeskBatchData(null);
-        
-        const results: SlideData[] = [];
-        for (let i = 0; i < selectedFeedbacks.length; i++) {
-          const res = await analyzeFeedbackForSlide(selectedFeedbacks[i]);
-          results.push(res);
-          if (i < selectedFeedbacks.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 800));
-          }
-        }
+        const results = await Promise.all(
+          selectedFeedbacks.map(f => analyzeFeedbackForSlide(f))
+        );
         setSlides(results);
         setActiveSlideIndex(0);
       } else {
         setSlides([]);
         setZendeskBatchData(null);
-        
-        const batchResults = await batchAnalyzeZendeskTickets(selectedFeedbacks);
-        setZendeskBatchData(batchResults);
+        // Step 1: Analyze each ticket
+        const individualReports = await Promise.all(
+          selectedFeedbacks.map(f => analyzeIndividualZendeskTicket(f.ticketId || '', f.ticketComment, f.manualDuration, f.category))
+        );
+        // Step 2: Batch summary
+        const summary = await generateZendeskBatchSummary(individualReports);
+        setZendeskBatchData({ individual: individualReports, summary });
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Analysis failed:", err);
-      const isQuotaError = err.message?.includes('429') || err.message?.includes('quota');
-      alert(isQuotaError ? "AI 分析配額不足，請等待約 1 分鐘後再試，或聯絡管理員提升 API 配額。" : "分析失敗，請檢查 API Key 或網路連線。");
+      alert("分析失敗，請檢查 API Key 或網路連線。");
     } finally {
       setIsAnalyzing(false);
     }
@@ -349,68 +336,51 @@ export default function App() {
               animate={{ opacity: 1 }}
               className="space-y-6"
             >
-              {/* Only show this intermediate view for CSAT/NPS. Chat Duration goes direct. */}
-              {activeTab === 'csat' ? (
-                <>
-                  <div className="flex flex-col md:flex-row md:items-center justify-between bg-white p-6 rounded-3xl border border-morandi-yellow-100 shadow-sm gap-6">
-                    <div className="flex items-center gap-6">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">總匯入筆數</span>
-                        <span className="text-2xl font-black text-slate-900">{feedbacks.length} <span className="text-sm font-normal text-slate-400">筆</span></span>
-                      </div>
-                      <div className="w-px h-10 bg-slate-100" />
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-bold text-morandi-yellow-400 uppercase tracking-widest">已選取分析</span>
-                        <span className="text-2xl font-black text-morandi-yellow-600">{selectedIds.size} <span className="text-sm font-normal text-morandi-yellow-400">筆</span></span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => {
-                            setFeedbacks([]); 
-                            setZendeskBatchData(null);
-                            setSlides([]);
-                          }}
-                          className="flex items-center gap-2 px-4 py-3 bg-white border border-morandi-yellow-200 text-morandi-yellow-600 rounded-xl font-bold hover:bg-morandi-yellow-50 transition-all text-sm"
-                        >
-                          <Plus size={16} />
-                          繼續加入
-                        </button>
-                        <button 
-                          onClick={handleAnalyze}
-                          disabled={selectedIds.size === 0 || isAnalyzing}
-                          className="flex items-center gap-2 px-8 py-3 bg-morandi-yellow-600 text-white rounded-xl font-bold hover:bg-morandi-yellow-700 disabled:opacity-50 transition-all shadow-lg shadow-morandi-yellow-100 text-sm"
-                        >
-                          {isAnalyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                          {isAnalyzing ? 'AI 分析中...' : '開始 AI 分析'}
-                        </button>
-                      </div>
-                    </div>
+              <div className="flex flex-col md:flex-row md:items-center justify-between bg-white p-6 rounded-3xl border border-morandi-yellow-100 shadow-sm gap-6">
+                <div className="flex items-center gap-6">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">總匯入筆數</span>
+                    <span className="text-2xl font-black text-slate-900">{feedbacks.length} <span className="text-sm font-normal text-slate-400">筆</span></span>
                   </div>
-
-                  <FeedbackTable 
-                    data={feedbacks} 
-                    selectedIds={selectedIds} 
-                    onToggleSelect={handleToggleSelect}
-                    onSelectAll={handleSelectAll}
-                    mode="csat-nps"
-                  />
-                </>
-              ) : (
-                // This state should ideally not be reached for Chat Duration
-                // But if it is, we show a retry option or return to import
-                <div className="text-center py-24 bg-white rounded-3xl border border-dashed border-slate-200">
-                  <p className="text-slate-500 mb-4">分析尚未完成或發生錯誤</p>
-                  <button 
-                    onClick={() => setFeedbacks([])}
-                    className="px-6 py-2 bg-morandi-yellow-600 text-white rounded-xl font-bold"
-                  >
-                    返回匯入頁面
-                  </button>
+                  <div className="w-px h-10 bg-slate-100" />
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-morandi-yellow-400 uppercase tracking-widest">已選取分析</span>
+                    <span className="text-2xl font-black text-morandi-yellow-600">{selectedIds.size} <span className="text-sm font-normal text-morandi-yellow-400">筆</span></span>
+                  </div>
                 </div>
-              )}
+
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        setFeedbacks([]); 
+                        setZendeskBatchData(null);
+                        setSlides([]);
+                      }}
+                      className="flex items-center gap-2 px-4 py-3 bg-white border border-morandi-yellow-200 text-morandi-yellow-600 rounded-xl font-bold hover:bg-morandi-yellow-50 transition-all text-sm"
+                    >
+                      <Plus size={16} />
+                      繼續加入
+                    </button>
+                    <button 
+                      onClick={handleAnalyze}
+                      disabled={selectedIds.size === 0 || isAnalyzing}
+                      className="flex items-center gap-2 px-8 py-3 bg-morandi-yellow-600 text-white rounded-xl font-bold hover:bg-morandi-yellow-700 disabled:opacity-50 transition-all shadow-lg shadow-morandi-yellow-100 text-sm"
+                    >
+                      {isAnalyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      {isAnalyzing ? 'AI 分析中...' : '開始 AI 分析'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <FeedbackTable 
+                data={feedbacks} 
+                selectedIds={selectedIds} 
+                onToggleSelect={handleToggleSelect}
+                onSelectAll={handleSelectAll}
+                mode={activeTab === 'csat' ? 'csat-nps' : 'chat-duration'}
+              />
             </motion.div>
           ) : zendeskBatchData ? (
             <motion.div
@@ -472,7 +442,6 @@ export default function App() {
                     setSelectedBatchTicketIds(new Set(zendeskBatchData.individual.map(r => r.ticketId)));
                   }
                 }}
-                onUpdateSelection={(newIds) => setSelectedBatchTicketIds(newIds)}
                 onUpdateReports={(updatedReports) => {
                   setZendeskBatchData({
                     ...zendeskBatchData,

@@ -7,7 +7,7 @@ export interface Feedback {
   npsComment: string;
   howToImprove: string;
   manualDuration?: number;
-  category?: string;
+  category?: 'Inquiry' | 'Issue' | 'Request' | string;
 }
 
 export interface SlideData {
@@ -26,13 +26,13 @@ export interface ZendeskIndividualReport {
   summaryPoints: string[];
   caseDescription: string;
   todoItems: string;
+  category?: 'Inquiry' | 'Issue' | 'Request' | string;
   takeaways: {
     percentage: string;
     insight: string;
     suggestion: string;
   }[];
   opportunity: string;
-  category?: string;
 }
 
 export interface ZendeskBatchSummary {

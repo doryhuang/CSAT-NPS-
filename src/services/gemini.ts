@@ -1,40 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Feedback, SlideData, ZendeskIndividualReport, ZendeskBatchSummary } from "../types";
 
-const getApiKey = (keyName?: string) => {
-  const env = (import.meta as any).env || {};
-  const specificKey = keyName ? env[keyName] : null;
-  return (specificKey as string) || (env.VITE_GEMINI_API_KEY as string) || (process.env.GEMINI_API_KEY as string) || "";
-};
-
-const aiCsat = new GoogleGenAI({ apiKey: getApiKey('VITE_GEMINI_API_KEY_CSAT') });
-const aiDuration = new GoogleGenAI({ apiKey: getApiKey('VITE_GEMINI_API_KEY_DURATION') });
-
-/**
- * 具備自動重試機制的 Gemini API 呼叫函式
- */
-async function generateContentWithRetry(aiInstance: GoogleGenAI, params: any, maxRetries = 3) {
-  let lastError: any;
-  let delay = 2000; // 初始等待 2 秒
-
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await aiInstance.models.generateContent(params);
-    } catch (err: any) {
-      lastError = err;
-      const isQuotaError = err.message?.includes('429') || err.message?.includes('quota') || err.message?.includes('REHAUSTED');
-      
-      if (isQuotaError && i < maxRetries - 1) {
-        console.warn(`[AI Quota Hit] 正在進行第 ${i + 1} 次重試，等待 ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2; // 指數級增加等待時間
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw lastError;
-}
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<SlideData> {
   const prompt = `
@@ -48,16 +15,16 @@ export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<Slide
     Improvement Suggestion: ${feedback.howToImprove}
 
     Please provide:
-    1. A concise summary of the feedback (工單滿意度評論匯整)。
-    2. Key issue points (關鍵問題點)。
-    3. Final result/conclusion (最終結論)。
-    4. Sentiment (positive, neutral, or negative)。
+    1. A concise summary of the feedback (工單滿意度評論).
+    2. Key issue points (關鍵問題點).
+    3. Final result/conclusion (最終結果).
+    4. Sentiment (positive, neutral, or negative).
 
     Return the result in JSON format.
   `;
 
-  const response = await generateContentWithRetry(aiCsat, {
-    model: "gemini-3.1-flash-lite-preview",
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -92,54 +59,65 @@ export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<Slide
 
 /**
  * 分析個別 Zendesk 工單內容
+ * 使用 gemini-3-flash-preview 以兼顧分析速度與配額限制，並保持精準的邏輯要求
  */
 export async function analyzeIndividualZendeskTicket(ticketId: string, content: string, manualDuration?: number, category?: string): Promise<ZendeskIndividualReport> {
-  // 限制長度避免單次流量過大
-  const safeContent = content.slice(0, 8000);
-  
   const prompt = `
-    你是一位極度嚴謹的資深客服分析師與品質控管專家。
-    任務：深度分析 Zendesk 工單對話紀錄。
+    你是一位極度嚴謹的資深客服分析師與品質控管專家（QA Specialist）。
+    任務：深度分析 Zendesk 工單對話紀錄，產出精準、客觀且無誤的報告。
     
+    ### 待分析對話記錄：
     Ticket ID: ${ticketId}
-    ${category ? `工單項目: ${category}` : ''}
-    ${safeContent}
+    Category: ${category || 'Unknown'}
+    ${content}
 
-    ### 要求：
-    1. 案件說明 (caseDescription)
-    2. 對話重點 (summaryPoints) - 5點
-    3. 待辦改善建議 (todoItems)
-    4. 結論洞察 (takeaways) - 3個包含比重
-    5. SOP 改善機會 (opportunity)
+    ### 核心分析準則（嚴格執行）：
+    1. **拒絕幻覺 (Zero Fabrication)**：
+       - **嚴禁臆測**：僅能根據對話中明確出現的文字進行分析。未提及的資訊（如：背後原因、用戶情緒、未記錄的操作）嚴禁出現在報告中。
+       - **精準定義**：如果用戶說「App 打不開」，不准寫成「網路不穩」。
+
+    2. **時長與空窗精準分析**：
+       - **空窗時間 (Idle Time)**：定義為「雙方無對話且某方在等待」超過 3 分鐘。
+       - **嚴禁誤判**：若對話密集（訊息間隔 < 3 分鐘），即使對話時間長達數十分鐘，也**絕對禁止**稱為空窗。應歸類為「解決過程緩慢」或「問題複雜」。
+       - **計算邏輯**：${manualDuration !== undefined ? `已提供外部計算時長 ${manualDuration} 分鐘，請直接使用此數值並分析原因。` : '由「Agent Joined」或第一則客服回覆，至「User Left」或最後一則用戶訊息的時間差。'}
+
+    3. **事實查核 (Fact-Checking)**：
+       - 在生成 summaryPoints 與 takeaways 時，請確保每一點都能在對話中找到對應的訊息或時間標記。
+
+    ### 輸出要求：
+    1. **案件說明 (caseDescription)**：準確、技術性地描述核心問題。
+    2. **對話重點 (summaryPoints)**：提供 5 個精簡且事實基礎的對話里程碑。
+    3. **結論洞察 (takeaways)**：提供 3 個基於此案事實的結論。百分比應反映該因素在該對話中的「比重」或「頻率」。
+    4. **SOP 改善機會 (opportunity)**：基於對話中暴露出的效率瓶頸，提出一個具體的 SOP 修改建議。
 
     請以中文回報。
   `;
 
-  const response = await generateContentWithRetry(aiDuration, {
-    model: "gemini-3.1-flash-lite-preview",
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          durationMinutes: { type: Type.NUMBER },
-          caseDescription: { type: Type.STRING },
-          todoItems: { type: Type.STRING },
-          summaryPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
+          durationMinutes: { type: Type.NUMBER, description: "總對話時長（分鐘）" },
+          caseDescription: { type: Type.STRING, description: "準確且技術性的案件描述" },
+          todoItems: { type: Type.STRING, description: "後續改善建議" },
+          summaryPoints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "5點事實基礎的對話重點" },
           takeaways: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
               properties: {
-                percentage: { type: Type.STRING },
-                insight: { type: Type.STRING },
-                suggestion: { type: Type.STRING }
+                percentage: { type: Type.STRING, description: "標題與比重，如 '操作溝通耗時 (60%)'" },
+                insight: { type: Type.STRING, description: "基於對話事實的深度洞察" },
+                suggestion: { type: Type.STRING, description: "具體的單案優化建議" }
               },
               required: ["percentage", "insight", "suggestion"]
             }
           },
-          opportunity: { type: Type.STRING }
+          opportunity: { type: Type.STRING, description: "SOP 改善機會" }
         },
         required: ["durationMinutes", "caseDescription", "todoItems", "summaryPoints", "takeaways", "opportunity"]
       }
@@ -151,108 +129,66 @@ export async function analyzeIndividualZendeskTicket(ticketId: string, content: 
 }
 
 /**
- * 批次分析多筆 Zendesk 工單 (節省 API 配額)
+ * 生成批次報告摘要
+ * 使用 gemini-3-flash-preview 處理複雜的趨勢分析，以避免配額耗盡錯誤
  */
-export async function batchAnalyzeZendeskTickets(tickets: Feedback[]): Promise<{ 
-  individual: ZendeskIndividualReport[]; 
-  summary: ZendeskBatchSummary; 
-}> {
-  // 每個工單內容進行初步節省長度
-  const ticketsContent = tickets.map((f, idx) => `
-    ### Ticket #${idx + 1}
-    ID: ${f.ticketId}
-    類別: ${f.category || '未分類'}
-    對話內容: ${f.ticketComment.slice(0, 5000)}
-    ${f.manualDuration ? `時長: ${f.manualDuration} 分鐘` : ''}
+export async function generateZendeskBatchSummary(reports: ZendeskIndividualReport[]): Promise<ZendeskBatchSummary> {
+  const reportsContext = reports.map(r => `
+    工單 ID: ${r.ticketId}
+    時長: ${r.durationMinutes} 分鐘
+    案件說明: ${r.caseDescription}
+    分析重點: ${r.summaryPoints.join('; ')}
+    結論洞察: ${r.takeaways.map(t => t.insight).join('; ')}
   `).join('\n---\n');
 
   const prompt = `
-    你是一位極度專業的資深客服分析師經理。
-    任務：分析以下一批 Zendesk 工單 (${tickets.length}筆)。
+    你是一位極度專業的資深客服營運分析經理。
+    任務：將多筆 Zendesk 工單的分析結果整合為一份高層級的「效率與品質分析報告」。
+    
+    ### 原始數據來源：
+    ${reportsContext}
 
-    ### 分析準則：
-    1. 為每一件工單產出詳盡分析 (individualReports)。
-    2. 總結整體服務趨勢 (batchSummary)。
+    ### 核心分析準則：
+    1. **絕對準確**：總結內容必須與各別工單的事實數據完全一致，嚴禁誇大或縮小。
+    2. **深度趨勢分析**：識別跨工單的系統性問題，例如：特定產品功能的缺陷、某類問題的 SOP 缺失、或客服效能普遍低下的原因。
+    3. **拒絕範本化**：不准提供籠統、通用的建議（如「加強培訓」）。建議必須具體到可以立即執行的操作。
+
+    ### 要求：
+    1. **對話效率總體摘要 (ticketSummary)**：一段話精煉總結整體服務效能與發現。
+    2. **核心戰略結論 (takeaways)**：提供 3 個基於數據的趨勢結論，需包含具體情境。
+    3. **核心改善機會 (opportunity)**：提出一項最高權重的整體 SOP 或流程優化建議。
 
     請以中文回報。
   `;
 
-  const response = await generateContentWithRetry(aiDuration, {
-    model: "gemini-3.1-flash-lite-preview",
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
     contents: prompt,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          individualReports: {
+          ticketSummary: { type: Type.STRING, description: "對話效率總體摘要" },
+          takeaways: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
               properties: {
-                ticketId: { type: Type.STRING },
-                durationMinutes: { type: Type.NUMBER },
-                caseDescription: { type: Type.STRING },
-                summaryPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
-                todoItems: { type: Type.STRING },
-                takeaways: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      percentage: { type: Type.STRING },
-                      insight: { type: Type.STRING },
-                      suggestion: { type: Type.STRING }
-                    },
-                    required: ["percentage", "insight", "suggestion"]
-                  }
-                },
-                opportunity: { type: Type.STRING }
+                title: { type: Type.STRING, description: "結論標題，包含百分比或比重" },
+                insight: { type: Type.STRING, description: "深層趨勢洞察與事實根據" },
+                suggestion: { type: Type.STRING, description: "針對此趨勢的戰略性優化建議" }
               },
-              required: ["ticketId", "durationMinutes", "caseDescription", "summaryPoints", "todoItems", "takeaways", "opportunity"]
+              required: ["title", "insight", "suggestion"]
             }
           },
-          batchSummary: {
-            type: Type.OBJECT,
-            properties: {
-              ticketSummary: { type: Type.STRING },
-              takeaways: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING },
-                    insight: { type: Type.STRING },
-                    suggestion: { type: Type.STRING }
-                  },
-                  required: ["title", "insight", "suggestion"]
-                }
-              },
-              opportunity: { type: Type.STRING }
-            },
-            required: ["ticketSummary", "takeaways", "opportunity"]
-          }
+          opportunity: { type: Type.STRING, description: "核心改善機會" }
         },
-        required: ["individualReports", "batchSummary"]
+        required: ["ticketSummary", "takeaways", "opportunity"]
       }
     }
   });
 
   const result = JSON.parse(response.text || "{}");
-  
-  const individualWithMetaData = result.individualReports.map((report: any) => {
-    const original = tickets.find(t => t.ticketId === report.ticketId);
-    return {
-      ...report,
-      category: original?.category
-    };
-  });
-
-  return {
-    individual: individualWithMetaData,
-    summary: {
-      ...result.batchSummary,
-      caseIds: individualWithMetaData.map((r: any) => r.ticketId)
-    }
-  };
+  return { ...result, caseIds: reports.map(r => r.ticketId) };
 }

@@ -11,12 +11,6 @@ interface FeedbackTableProps {
   mode: 'csat-nps' | 'chat-duration';
 }
 
-const categoryColors: Record<string, string> = {
-  Inquiry: "bg-blue-50 text-blue-600 border-blue-100",
-  Issue: "bg-red-50 text-red-600 border-red-100",
-  Request: "bg-emerald-50 text-emerald-600 border-emerald-100"
-};
-
 export const FeedbackTable: React.FC<FeedbackTableProps> = ({ data, selectedIds, onToggleSelect, onSelectAll, mode }) => {
   const allSelected = data.length > 0 && selectedIds.size === data.length;
 
@@ -35,10 +29,7 @@ export const FeedbackTable: React.FC<FeedbackTableProps> = ({ data, selectedIds,
                 </button>
               </th>
               {mode === 'chat-duration' && (
-                <>
-                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-24 text-center">項目</th>
-                  <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-32">工單 ID</th>
-                </>
+                <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-32">工單 ID</th>
               )}
               {mode === 'csat-nps' && (
                 <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-32 text-center">評分</th>
@@ -62,27 +53,17 @@ export const FeedbackTable: React.FC<FeedbackTableProps> = ({ data, selectedIds,
                   </div>
                 </td>
                 {mode === 'chat-duration' && (
-                  <>
-                    <td className="p-4 text-center">
-                      <span className={cn(
-                        "text-[10px] font-bold px-2 py-0.5 rounded-md border",
-                        f.category ? (categoryColors[f.category] || "bg-slate-100 text-slate-600 border-slate-200") : "text-slate-300 border-transparent"
-                      )}>
-                        {f.category || '-'}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <a 
-                        href={`https://furbo.zendesk.com/agent/tickets/${f.ticketId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-bold text-morandi-yellow-600 hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        #{f.ticketId}
-                      </a>
-                    </td>
-                  </>
+                  <td className="p-4">
+                    <a 
+                      href={`https://furbo.zendesk.com/agent/tickets/${f.ticketId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-bold text-morandi-yellow-600 hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      #{f.ticketId}
+                    </a>
+                  </td>
                 )}
                 {mode === 'csat-nps' && (
                   <td className="p-4">
