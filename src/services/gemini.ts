@@ -2,19 +2,29 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Feedback, SlideData, ZendeskIndividualReport, ZendeskBatchSummary } from "../types";
 
 // 初始化 Google GenAI
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+// 支援平台注入的 process.env.GEMINI_API_KEY 以及 Vercel/Vite 的 VITE_GEMINI_API_KEY
+const getApiKey = () => {
+  try {
+    return process.env.GEMINI_API_KEY || (import.meta as any).env.VITE_GEMINI_API_KEY || "";
+  } catch (e) {
+    return (import.meta as any).env.VITE_GEMINI_API_KEY || "";
+  }
+};
+
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<SlideData> {
   const prompt = `
-    Analyze the following customer feedback and generate a structured summary for a presentation slide.
-    Ticket ID: ${feedback.ticketId}
-    CSAT Score: ${feedback.csat}
-    NPS Score: ${feedback.nps}
-    Ticket Comment: ${feedback.ticketComment}
-    NPS Comment: ${feedback.npsComment}
-    Improvement Suggestion: ${feedback.howToImprove}
-    Please provide summary, keyIssues, finalResult, sentiment.
-    Return JSON.
+    請分析以下客戶回饋，並為簡報頁面生成結構化的摘要。
+    【重要指令：必須使用繁體中文（台灣格式）回答所有欄位內容】
+    工單 ID: ${feedback.ticketId}
+    CSAT 分數: ${feedback.csat}
+    NPS 分數: ${feedback.nps}
+    工單評論: ${feedback.ticketComment}
+    NPS 評論: ${feedback.npsComment}
+    改善建議: ${feedback.howToImprove}
+    請提供 summary, keyIssues, finalResult, sentiment。
+    請以 JSON 格式回傳。
   `;
 
   try {
@@ -26,18 +36,18 @@ export async function analyzeFeedbackForSlide(feedback: Feedback): Promise<Slide
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            summary: { type: Type.STRING },
-            keyIssues: { type: Type.STRING },
-            finalResult: { type: Type.STRING },
-            sentiment: { type: Type.STRING }
+            summary: { type: Type.STRING, description: "繁體中文摘要" },
+            keyIssues: { type: Type.STRING, description: "繁體中文關鍵問題" },
+            finalResult: { type: Type.STRING, description: "繁體中文最終結果" },
+            sentiment: { type: Type.STRING, description: "情緒分析（正向/中立/負向）" }
           },
           required: ["summary", "keyIssues", "finalResult", "sentiment"]
         }
       }
     });
-    
+
     const result = JSON.parse(response.text || "{}");
-    
+
     return {
       ticketId: feedback.ticketId,
       csat: feedback.csat,
@@ -60,12 +70,20 @@ export async function analyzeIndividualZendeskTicket(ticketId: string, content: 
   const prompt = `
     你是一位極度嚴謹的資深客服分析師與品質控管專家（QA Specialist）。
     任務：深度分析 Zendesk 工單對話紀錄，產出精準、客觀且無誤的報告。
-    Ticket ID: ${ticketId}
-    Category: ${category || 'N/A'}
-    ${content}
-    計算邏輯：${manualDuration !== undefined ? `已提供外部計算時長 ${manualDuration} 分鐘` : '分析對話時長'}
-    請提供 durationMinutes, caseDescription, todoItems, summaryPoints, takeaways, opportunity.
-    Return JSON.
+    【重要指令：所有輸出的內容（summary, description, todo, insights, suggestion）必須完全使用繁體中文（台灣格式）】
+    
+    工單 ID: ${ticketId}
+    類別: ${category || 'N/A'}
+    對話內容: ${content}
+    時長資訊: ${manualDuration !== undefined ? `外部計算為 ${manualDuration} 分鐘` : '分析對話時長'}
+    
+    請提供以下欄位（JSON 格式）：
+    - durationMinutes: 數字
+    - caseDescription: 繁體中文案件說明
+    - todoItems: 繁體中文待辦事項
+    - summaryPoints: 繁體中文字串陣列（對話重點）
+    - takeaways: 包含 percentage, insight(繁體中文), suggestion(繁體中文) 的陣列
+    - opportunity: 繁體中文核心改善建議
   `;
 
   try {
@@ -111,12 +129,18 @@ export async function analyzeIndividualZendeskTicket(ticketId: string, content: 
  * 生成批次報告摘要
  */
 export async function generateZendeskBatchSummary(reports: ZendeskIndividualReport[]): Promise<ZendeskBatchSummary> {
-  const reportsContext = reports.map((r: any) => `ID: ${r.ticketId}, Category: ${r.category}, Duration: ${r.durationMinutes}, Desc: ${r.caseDescription}`).join('\n---\n');
+  const reportsContext = reports.map((r: any) => `ID: ${r.ticketId}, 類別: ${r.category}, 時長: ${r.durationMinutes}, 案情: ${r.caseDescription}`).join('\n---\n');
   const prompt = `
-    將多筆 Zendesk 工單的分析結果整合。
+    請將多筆 Zendesk 工單的分析結果整合為一份總結報告。
+    【重要指令：必須使用繁體中文（台灣格式）生成所有回答內容】
+    
+    原始資料內容：
     ${reportsContext}
-    提供 ticketSummary, takeaways, opportunity.
-    Return JSON.
+    
+    請提供以下欄位（JSON 格式）：
+    - ticketSummary: 繁體中文總體效率摘要
+    - takeaways: 包含 title(繁體中文), insight(繁體中文), suggestion(繁體中文) 的陣列
+    - opportunity: 繁體中文核心改善建議
   `;
 
   try {

@@ -147,6 +147,8 @@ export default function App() {
         setSelectedBatchTicketIds(new Set(individualReports.map(r => r.ticketId)));
       } catch (err) {
         console.error("Analysis failed", err);
+        setFeedbacks([]); // If analysis fails, go back to import page
+        alert("分析失敗，請檢查 API Key 或網路連線。");
       } finally {
         setIsAnalyzing(false);
       }
@@ -281,7 +283,7 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <AnimatePresence mode="wait">
-          {feedbacks.length === 0 ? (
+          {(feedbacks.length === 0 || (activeTab === 'duration' && !zendeskBatchData && !isAnalyzing)) ? (
             <motion.div 
               key="import"
               initial={{ opacity: 0, y: 20 }}
@@ -329,7 +331,7 @@ export default function App() {
                 <p className="text-slate-500 font-medium italic">我們正在根據工單內容與對話時長提取關鍵洞察...</p>
               </div>
             </motion.div>
-          ) : (slides.length === 0 && !zendeskBatchData) ? (
+          ) : (activeTab === 'csat' && feedbacks.length > 0 && slides.length === 0) ? (
             <motion.div 
               key="table"
               initial={{ opacity: 0 }}
@@ -379,7 +381,7 @@ export default function App() {
                 selectedIds={selectedIds} 
                 onToggleSelect={handleToggleSelect}
                 onSelectAll={handleSelectAll}
-                mode={activeTab === 'csat' ? 'csat-nps' : 'chat-duration'}
+                mode="csat-nps"
               />
             </motion.div>
           ) : zendeskBatchData ? (
